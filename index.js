@@ -10,6 +10,7 @@ const puppeteer = require('puppeteer')
 const tempy = require('tempy')
 const { spawn } = require('child_process')
 const { sprintf } = require('sprintf-js')
+const { v4: uuidv4 } = require('uuid')
 
 const { cssifyObject } = require('css-in-js-utils')
 
@@ -39,6 +40,7 @@ const injectLottie = `
  * @param {string} opts.output - Path or pattern to store result
  * @param {object} [opts.animationData] - JSON exported animation data
  * @param {string} [opts.path] - Relative path to the JSON file containing animation data
+ * @param {string} [opts.mp3Path] - Relative or full path (supports URLs) to the mp3 file
  * @param {number} [opts.width] - Optional output width
  * @param {number} [opts.height] - Optional output height
  * @param {object} [opts.jpegQuality=90] - JPEG quality for frames (does nothing if using png)
@@ -62,6 +64,7 @@ module.exports = async (opts) => {
     output,
     animationData = undefined,
     path: animationPath = undefined,
+    mp3Path = null,
     jpegQuality = 90,
     quiet = false,
     deviceScaleFactor = 1,
@@ -280,6 +283,7 @@ ${inject.body || ''}
 
   let ffmpegP
   let ffmpeg
+  let ffmpegAudio
   let ffmpegStdin
 
   if (isApng || isMp4) {
@@ -309,6 +313,23 @@ ${inject.body || ''}
           }
         }
 
+        // if (mp3Path) {
+        //   ffmpegArgs.push(
+        //     '-f', 'lavfi', '-i', `color=c=black:size=${width}x${height}`,
+        //     '-f', 'image2pipe', '-c:v', 'png', '-r', `${fps}`, '-i', '-',
+        //     '-filter_complex', `[0:v][1:v]overlay[o];[o]${scale}:flags=bicubic[out]`,
+        //     '-i', mp3Path, '-c:a', 'aac',
+        //     '-map', '[out]',
+        //     '-c:v', 'libx264',
+        //     '-profile:v', ffmpegOptions.profileVideo,
+        //     '-preset', ffmpegOptions.preset,
+        //     '-crf', ffmpegOptions.crf,
+        //     '-movflags', 'faststart',
+        //     '-pix_fmt', 'yuv420p',
+        //     '-r', fps,
+        //     '-shortest'
+        //   )
+        // } else {
         ffmpegArgs.push(
           '-f', 'lavfi', '-i', `color=c=black:size=${width}x${height}`,
           '-f', 'image2pipe', '-c:v', 'png', '-r', `${fps}`, '-i', '-',
@@ -322,12 +343,21 @@ ${inject.body || ''}
           '-pix_fmt', 'yuv420p',
           '-r', fps
         )
+        // }
       }
 
-      ffmpegArgs.push(
-        '-frames:v', `${numOutputFrames}`,
-        '-an', output
-      )
+      const intermediatePath = path.join(path.dirname(output), uuidv4() + '.mp4')
+      if (mp3Path) {
+        ffmpegArgs.push(
+          '-frames:v', `${numOutputFrames}`,
+          '-an', intermediatePath
+        )
+      } else {
+        ffmpegArgs.push(
+          '-frames:v', `${numOutputFrames}`,
+          '-an', output
+        )
+      }
 
       console.log(ffmpegArgs.join(' '))
 
@@ -345,13 +375,48 @@ ${inject.body || ''}
         }
       })
 
-      ffmpeg.on('exit', async (status) => {
-        if (status) {
-          return reject(new Error(`FFmpeg exited with status ${status}`))
-        } else {
-          return resolve()
-        }
-      })
+      if (mp3Path) {
+        ffmpeg.on('exit', async (status) => {
+          const ffmpegAudioArgs = [
+            '-v', 'error',
+            '-stats',
+            '-hide_banner',
+            '-y',
+            '-i', intermediatePath, '-i', mp3Path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', output
+          ]
+
+          console.log('Rendering mp4 with mp3 overlayed')
+          console.log(ffmpegAudioArgs.join(' '))
+
+          ffmpegAudio = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegAudioArgs)
+          const { stdin, stdout, stderr } = ffmpegAudio
+          stdout.pipe(process.stdout)
+          stderr.pipe(process.stderr)
+
+          stdin.on('error', (err) => {
+            if (err.code !== 'EPIPE') {
+              return reject(err)
+            }
+          })
+
+          ffmpegAudio.on('exit', async (status) => {
+            if (status) {
+              return reject(new Error(`FFmpeg (audio) exited with status ${status}`))
+            } else {
+              fs.removeSync(intermediatePath)
+              return resolve()
+            }
+          })
+        })
+      } else {
+        ffmpeg.on('exit', async (status) => {
+          if (status) {
+            return reject(new Error(`FFmpeg exited with status ${status}`))
+          } else {
+            return resolve()
+          }
+        })
+      }
 
       ffmpegStdin = stdin
     })
@@ -368,7 +433,7 @@ ${inject.body || ''}
       path: (isApng || isMp4) ? undefined : frameOutputPath,
       ...screenshotOpts
     })
-    
+
     if(progress) {
       progress(frame, numFrames)
     }

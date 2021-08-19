@@ -1,10 +1,13 @@
 {
-  "name": "puppeteer-lottie",
+  "name": "amplilottie",
   "version": "1.1.1",
-  "description": "Renders Lottie animations via Puppeteer to image, GIF, or MP4.",
+  "description": "Renders Lottie animations via Puppeteer to image, GIF, or MP4. Support for MP3s added and maintained by MWKCoding",
   "main": "index.js",
-  "repository": "transitive-bullshit/puppeteer-lottie",
-  "author": "Travis Fischer <travis@transitivebullsh.it>",
+  "repository": "amplifice/amplilottie",
+  "author": "Mikkel Wulff Köhler <mikkel@mwkcoding.com> (https://mwkcoding.com)",
+  "contributors": [
+    "Travis Fischer <travis@transitivebullsh.it>"
+  ],
   "license": "MIT",
   "scripts": {
     "docs": "update-markdown-jsdoc --no-markdown-toc",
@@ -44,6 +47,7 @@
     "pluralize": "^7.0.0",
     "puppeteer": "^2.1.1",
     "sprintf-js": "^1.1.2",
-    "tempy": "^0.3.0"
+    "tempy": "^0.3.0",
+    "uuid": "^8.3.2"
   }
 }
